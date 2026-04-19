@@ -1,6 +1,4 @@
-<<<<<<< HEAD
-# gcp-devops-platform
-=======
+
 # Jemmie's Store – GCP DevOps Platform (Kubernetes, CI/CD & Observability)
 
 A complete DevOps portfolio project demonstrating end-to-end cloud-native engineering on Google Cloud Platform (GCP), including infrastructure provisioning, containerisation, Kubernetes orchestration, CI/CD pipelines, observability, and production teardown.
