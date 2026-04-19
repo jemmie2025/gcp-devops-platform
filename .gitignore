@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 # Local .terraform directories
 .terraform/
 
@@ -20,14 +21,20 @@ crash.*.log
 # Ignore override files as they are usually used to override resources locally and so
 # are not checked in
 =======
+=======
+# =========================
+>>>>>>> 6735fbf (Initial production-grade DevOps platform (GKE + Terraform + CI/CD + Observability))
 # Terraform
+# =========================
 .terraform/
 *.tfstate
 *.tfstate.*
 *.tfvars
 *.tfvars.json
+terraform.tfvars
 !terraform.tfvars.example
 .terraform.lock.hcl
+<<<<<<< HEAD
 .terraform.tfstate.lock.info
 crash.log
 crash.*.log
@@ -51,45 +58,40 @@ override.tf.json
 .terraformrc
 terraform.rc
 =======
+=======
+>>>>>>> 6735fbf (Initial production-grade DevOps platform (GKE + Terraform + CI/CD + Observability))
 .terraformrc
 terraform.rc
+crash.log
+crash.*.log
 *tfplan*
-
-# Cloud Functions
 *.zip
 function.zip
 
-# GCP
 .gcloud/
-credentials
+application_default_credentials.json
+credentials.json
 boto_config
 gsutil_config.json
-
-# Node.js
+# Node.js / Frontend
 node_modules/
 dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 package-lock.json
-
-# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
 Thumbs.db
-
-# Logs
 *.log
-
-# Sensitive
 *.pem
 *.key
-
-# Temporary
-tmp/
-temp/
+*.p12
+*.pfx
 *.tmp
->>>>>>> aff4796 (Initial production-grade DevOps platform (GKE + Terraform + CI/CD + Observability))
+
+*.tmp
