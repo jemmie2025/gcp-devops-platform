@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecommerce
+  labels:
+    name: ecommerce
+    environment: ${ENVIRONMENT}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ecommerce-config
+  namespace: ecommerce
+data:
+  APP_ENV: \"${ENVIRONMENT}\"
+  LOG_LEVEL: \"info\"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ecommerce-secrets
+  namespace: ecommerce
+type: Opaque
+data:
+  DB_PASSWORD: REDACTED  # Base64 encoded
+  API_KEY: REDACTED
+
+j

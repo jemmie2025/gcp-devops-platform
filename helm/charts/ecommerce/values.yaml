@@ -1,0 +1,57 @@
+replicaCount: 1
+
+image:
+  repository: nginx
+  pullPolicy: IfNotPresent
+  # Overrides tag/imagePullPolicy if set
+  tag: 1.21
+
+frontend:
+  enabled: true
+  replicas: 2
+  image:
+    # Update PROJECT_ID to your actual GCP project ID
+    repository: europe-west1-docker.pkg.dev/project-bedrock-gcp/ecommerce-frontend/ecommerce-frontend
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: LoadBalancer
+    port: 80
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+backend:
+  enabled: true
+  replicas: 2
+  image:
+    repository: gcr.io/google-samples/hello-app
+    tag: "1.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: LoadBalancer
+    port: 8080
+
+ingress:
+  enabled: true
+  className: gce
+  annotations:
+    kubernetes.io/ingress.class: gce
+    kubernetes.io/ingress.global-static-ip-name: ecommerce-ip
+    ingress.kubernetes.io/force-ssl-redirect: "false"
+  hosts:
+    - host: ecommerce.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+resources:
+  requests:
+    cpu: 250m
+  limits:
+    cpu: 500m
+

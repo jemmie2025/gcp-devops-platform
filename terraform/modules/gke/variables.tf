@@ -1,0 +1,24 @@
+variable "project_id" {
+  type = string
+}
+
+variable "environment" {
+  type = string
+}
+
+variable "region" {
+  type = string
+}
+
+variable "network_name" {
+  type = string
+}
+
+variable "subnets" {
+  type = map(string)
+}
+
+variable "cluster_name" {
+  type = string
+}
+
