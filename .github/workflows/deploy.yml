@@ -110,7 +110,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Authenticate to GCP
+      - id: auth
+        name: Authenticate to GCP
         uses: ./.github/actions/gcp-auth
         with:
           workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
