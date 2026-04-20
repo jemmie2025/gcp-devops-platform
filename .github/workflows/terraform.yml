@@ -1,81 +1,415 @@
-name: Terraform CI/CD
+# ==============================================================================
+# Terraform CI/CD — Plan on PR, Apply on Merge
+# ==============================================================================
+# Security: WIF auth (no static keys), plan/apply separation enforced
+# Caching:  Provider plugins cached across runs
+# Safety:   Plan output posted to PR; apply only on main merge
+#           Staging/Prod apply requires GitHub Environment approval
+# ==============================================================================
+
+name: Terraform
 
 on:
   push:
-    branches: [ \"main\" ]
+    branches: [main]
     paths:
       - 'terraform/**'
+      - '.github/workflows/terraform.yml'
   pull_request:
+    branches: [main]
     paths:
       - 'terraform/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options: [dev, staging, prod]
+      action:
+        description: 'Terraform action'
+        required: true
+        default: 'plan'
+        type: choice
+        options: [plan, apply]
+
+concurrency:
+  group: terraform-${{ github.event.inputs.environment || 'dev' }}-${{ github.ref }}
+  cancel-in-progress: false  # Never cancel in-flight Terraform
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
 
 env:
-  TF_VERSION: '1.5.*'
-  ENV: ${{ github.event.inputs.environment || 'dev' }}
+  TF_VERSION: '1.9.0'
+  TF_WORKING_DIR: terraform
+  TF_IN_AUTOMATION: 'true'
+  TF_INPUT: 'false'
 
 jobs:
-  terraform:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Determine target environments
+  # ──────────────────────────────────────────────────────────────────────────
+  setup:
+    name: Setup
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
+    outputs:
+      environments: ${{ steps.envs.outputs.environments }}
+      is_apply: ${{ steps.envs.outputs.is_apply }}
     steps:
-    - uses: actions/checkout@v4
+      - id: envs
+        name: Determine environments
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "environments=[\"${{ github.event.inputs.environment }}\"]" >> "$GITHUB_OUTPUT"
+            echo "is_apply=${{ github.event.inputs.action == 'apply' }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            echo 'environments=["dev"]' >> "$GITHUB_OUTPUT"
+            echo "is_apply=true" >> "$GITHUB_OUTPUT"
+          else
+            echo 'environments=["dev"]' >> "$GITHUB_OUTPUT"
+            echo "is_apply=false" >> "$GITHUB_OUTPUT"
+          fi
 
-    - id: 'auth'
-      name: 'Authenticate to Google Cloud'
-      uses: 'google-github-actions/auth@v2'
-      with:
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v3
-      with:
-        terraform_version: ${{ env.TF_VERSION }}
-
-    - name: Terraform Init
-      run: cd terraform/envs/${{ env.ENV }} && terraform init
-
-    - name: Terraform Format
-      run: cd terraform/envs/${{ env.ENV }} && terraform fmt -check
-
-    - name: Terraform Plan
-      id: plan
-      run: cd terraform/envs/${{ env.ENV }} && terraform plan -no-color -input=false
-
-    - name: Terraform Apply (on main)
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      run: cd terraform/envs/${{ env.ENV }} && terraform apply -auto-approve -input=false
-
-    - name: Manual Approval (prod)
-      if: env.ENV == 'prod'
-      uses: trstringer/manual-approval@v1
-      with:
-        secret: APPROVAL_SECRET
-        approvers: user1,user2
-
-  plan-comment:
-    if: github.event_name == 'pull_request'
+  # ──────────────────────────────────────────────────────────────────────────
+  # Validate — Format check & syntax validation
+  # ──────────────────────────────────────────────────────────────────────────
+  validate:
+    name: Validate
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: google-github-actions/auth@v2
-      with:
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
-    - uses: hashicorp/setup-terraform@v3
-      with:
-        terraform_version: ${{ env.TF_VERSION }}
-    - name: Terraform Plan
-      id: plan
-      run: cd terraform/envs/${{ env.ENV }} && terraform init && terraform plan -no-color -out=tfplan
-    - uses: actions/github-script@v7
-      with:
-        script: |
-          const output = `${{ steps.plan.outputs.stdout }}`;
-          github.rest.issues.createComment({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: context.issue.number,
-            body: '### Terraform Plan\n```\n' + output + '\n```',
-          });
+      - uses: actions/checkout@v5
 
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Format Check
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform fmt -check -recursive -diff
+
+      - name: Terraform Init (validate only)
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: terraform validate -no-color
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Plan — per environment (cached providers)
+  # ──────────────────────────────────────────────────────────────────────────
+  plan:
+    name: Plan — ${{ matrix.environment }}
+    runs-on: ubuntu-latest
+    needs: [setup, validate]
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: ${{ fromJson(needs.setup.outputs.environments) }}
+    outputs:
+      plan_exitcode: ${{ steps.plan.outputs.exitcode }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Authenticate to GCP
+        uses: ./.github/actions/gcp-auth
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.PROJECT_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Cache Terraform providers
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.TF_WORKING_DIR }}/.terraform/providers
+          key: terraform-providers-${{ runner.os }}-${{ hashFiles('terraform/.terraform.lock.hcl') }}
+          restore-keys: terraform-providers-${{ runner.os }}-
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform init \
+            -backend-config="prefix=terraform/state/${{ matrix.environment }}" \
+            -var-file="envs/${{ matrix.environment }}/terraform.tfvars" \
+            -var-file="cicd.tfvars"
+
+      - id: plan
+        name: Terraform Plan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        continue-on-error: true
+        run: |
+          set +e
+          terraform plan \
+            -var-file="envs/${{ matrix.environment }}/terraform.tfvars" \
+            -var-file="cicd.tfvars" \
+            -detailed-exitcode \
+            -no-color \
+            -out=tfplan-${{ matrix.environment }} 2>&1 | tee plan-output.txt
+          EXITCODE=$?
+          echo "exitcode=$EXITCODE" >> "$GITHUB_OUTPUT"
+          if [[ $EXITCODE -eq 1 ]]; then exit 1; fi
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: tfplan-${{ matrix.environment }}
+          path: |
+            ${{ env.TF_WORKING_DIR }}/tfplan-${{ matrix.environment }}
+            ${{ env.TF_WORKING_DIR }}/plan-output.txt
+          retention-days: 5
+
+      - name: Post plan to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v8
+        env:
+          PLAN_EXIT: ${{ steps.plan.outputs.exitcode }}
+          ENVIRONMENT: ${{ matrix.environment }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync('${{ env.TF_WORKING_DIR }}/plan-output.txt', 'utf8');
+            const exitCode = process.env.PLAN_EXIT;
+            const env = process.env.ENVIRONMENT;
+            const status = exitCode === '0' ? '✅ No changes' : exitCode === '2' ? '⚠️ Changes detected' : '❌ Error';
+
+            const body = `### Terraform Plan — \`${env}\` ${status}
+            <details><summary>Show Plan Output</summary>
+
+            \`\`\`hcl
+            ${planOutput.substring(0, 60000)}
+            \`\`\`
+            </details>
+
+            *Pushed by @${context.actor} • Commit: \`${context.sha.substring(0, 8)}\`*`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes(`Terraform Plan — \`${env}\``)
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Plan summary
+        run: |
+          echo "## Terraform Plan — ${{ matrix.environment }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Exit code: \`${{ steps.plan.outputs.exitcode }}\` (0=no changes, 2=changes detected)" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -30 "${{ env.TF_WORKING_DIR }}/plan-output.txt" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Apply — Dev (auto on main push)
+  # ──────────────────────────────────────────────────────────────────────────
+  apply-dev:
+    name: Apply — dev
+    runs-on: ubuntu-latest
+    needs: [setup, plan]
+    if: |
+      needs.setup.outputs.is_apply == 'true' &&
+      contains(needs.setup.outputs.environments, 'dev')
+    environment: dev
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Authenticate to GCP
+        uses: ./.github/actions/gcp-auth
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.PROJECT_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Cache Terraform providers
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.TF_WORKING_DIR }}/.terraform/providers
+          key: terraform-providers-${{ runner.os }}-${{ hashFiles('terraform/.terraform.lock.hcl') }}
+          restore-keys: terraform-providers-${{ runner.os }}-
+
+      - name: Download plan
+        uses: actions/download-artifact@v5
+        with:
+          name: tfplan-dev
+          path: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform init \
+            -backend-config="prefix=terraform/state/dev" \
+            -var-file="envs/dev/terraform.tfvars" \
+            -var-file="cicd.tfvars"
+
+      - name: Terraform Apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "::group::Terraform Apply — dev"
+          terraform apply -auto-approve -input=false tfplan-dev
+          echo "::endgroup::"
+
+      - name: Apply summary
+        if: always()
+        run: |
+          echo "## Terraform Apply — dev" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Status:** ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit:** \`${GITHUB_SHA::8}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Actor:** @${{ github.actor }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Timestamp:** $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_STEP_SUMMARY"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Apply — Staging (requires GitHub Environment approval)
+  # ──────────────────────────────────────────────────────────────────────────
+  apply-staging:
+    name: Apply — staging
+    runs-on: ubuntu-latest
+    needs: [setup, plan]
+    if: |
+      needs.setup.outputs.is_apply == 'true' &&
+      contains(needs.setup.outputs.environments, 'staging')
+    environment: staging
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Authenticate to GCP
+        uses: ./.github/actions/gcp-auth
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.PROJECT_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Cache Terraform providers
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.TF_WORKING_DIR }}/.terraform/providers
+          key: terraform-providers-${{ runner.os }}-${{ hashFiles('terraform/.terraform.lock.hcl') }}
+          restore-keys: terraform-providers-${{ runner.os }}-
+
+      - name: Download plan
+        uses: actions/download-artifact@v5
+        with:
+          name: tfplan-staging
+          path: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform init \
+            -backend-config="prefix=terraform/state/staging" \
+            -var-file="envs/staging/terraform.tfvars" \
+            -var-file="cicd.tfvars"
+
+      - name: Terraform Apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "::group::Terraform Apply — staging"
+          terraform apply -auto-approve -input=false tfplan-staging
+          echo "::endgroup::"
+
+      - name: Apply summary
+        if: always()
+        run: |
+          echo "## Terraform Apply — staging" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Status:** ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit:** \`${GITHUB_SHA::8}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Actor:** @${{ github.actor }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Timestamp:** $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_STEP_SUMMARY"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Apply — Production (requires GitHub Environment approval)
+  # ──────────────────────────────────────────────────────────────────────────
+  apply-prod:
+    name: Apply — production
+    runs-on: ubuntu-latest
+    needs: [setup, plan]
+    if: |
+      needs.setup.outputs.is_apply == 'true' &&
+      contains(needs.setup.outputs.environments, 'prod')
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Authenticate to GCP
+        uses: ./.github/actions/gcp-auth
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.PROJECT_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Cache Terraform providers
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.TF_WORKING_DIR }}/.terraform/providers
+          key: terraform-providers-${{ runner.os }}-${{ hashFiles('terraform/.terraform.lock.hcl') }}
+          restore-keys: terraform-providers-${{ runner.os }}-
+
+      - name: Download plan
+        uses: actions/download-artifact@v5
+        with:
+          name: tfplan-prod
+          path: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          terraform init \
+            -backend-config="prefix=terraform/state/prod" \
+            -var-file="envs/prod/terraform.tfvars" \
+            -var-file="cicd.tfvars"
+
+      - name: Terraform Apply
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        run: |
+          echo "::group::Terraform Apply — production"
+          terraform apply -auto-approve -input=false tfplan-prod
+          echo "::endgroup::"
+
+      - name: Apply summary
+        if: always()
+        run: |
+          echo "## Terraform Apply — production" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Status:** ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Commit:** \`${GITHUB_SHA::8}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Actor:** @${{ github.actor }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Timestamp:** $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_STEP_SUMMARY"

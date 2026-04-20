@@ -1,0 +1,78 @@
+# ==============================================================================
+# Composite Action: GCP Authentication via Workload Identity Federation
+# ==============================================================================
+# Eliminates static JSON keys in favor of OIDC-based keyless authentication.
+# Optionally configures GKE cluster credentials for kubectl/helm access.
+#
+# Prerequisites (GCP side):
+#   1. Workload Identity Pool:  github-actions-pool
+#   2. OIDC Provider:           github-actions-provider
+#   3. Service Account bound to the pool with least-privilege roles
+#
+# Required GitHub secrets:
+#   - secrets.WORKLOAD_IDENTITY_PROVIDER   (full resource name)
+#   - secrets.SERVICE_ACCOUNT              (SA email)
+#   - secrets.PROJECT_ID
+#   - secrets.REGION
+#   - secrets.CLUSTER_NAME
+# ==============================================================================
+
+name: 'GCP Authenticate'
+description: 'Authenticate to GCP via Workload Identity Federation and optionally configure GKE credentials'
+
+inputs:
+  workload_identity_provider:
+    description: 'Full resource name of the WIF provider (projects/NUM/locations/global/workloadIdentityPools/POOL/providers/PROV)'
+    required: true
+  service_account:
+    description: 'GCP service account email'
+    required: true
+  project_id:
+    description: 'GCP project ID'
+    required: true
+  setup_gke:
+    description: 'Whether to configure GKE cluster credentials'
+    required: false
+    default: 'false'
+  gke_cluster:
+    description: 'GKE cluster name (required if setup_gke=true)'
+    required: false
+    default: ''
+  gke_location:
+    description: 'GKE cluster region/zone (required if setup_gke=true)'
+    required: false
+    default: ''
+
+outputs:
+  access_token:
+    description: 'Short-lived GCP access token'
+    value: ${{ steps.auth.outputs.access_token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: auth
+      name: Authenticate to Google Cloud (WIF)
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ inputs.workload_identity_provider }}
+        service_account: ${{ inputs.service_account }}
+        token_format: access_token
+        create_credentials_file: true
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v3
+      with:
+        project_id: ${{ inputs.project_id }}
+
+    - name: Configure Docker for Artifact Registry
+      shell: bash
+      run: gcloud auth configure-docker europe-west1-docker.pkg.dev --quiet
+
+    - if: inputs.setup_gke == 'true'
+      name: Get GKE credentials
+      uses: google-github-actions/get-gke-credentials@v3
+      with:
+        cluster_name: ${{ inputs.gke_cluster }}
+        location: ${{ inputs.gke_location }}
+        project_id: ${{ inputs.project_id }}

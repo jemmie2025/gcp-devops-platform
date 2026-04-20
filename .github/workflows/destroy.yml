@@ -1,3 +1,11 @@
+# ==============================================================================
+# Destroy Infrastructure — Safe Teardown with Confirmation
+# ==============================================================================
+# Manual-only workflow with double confirmation for safety.
+# Tears down Helm releases first, then Terraform infrastructure.
+# Production requires typing environment name + "DESTROY" confirmation.
+# ==============================================================================
+
 name: Destroy Infrastructure
 
 on:
@@ -7,31 +15,171 @@ on:
         description: 'Environment to destroy'
         required: true
         type: choice
-        options:
-        - dev
-        - staging
-        - prod
-        default: 'dev'
+        options: [dev, staging, prod]
+      confirm_environment:
+        description: 'Type the environment name to confirm (e.g., "dev")'
+        required: true
+        type: string
+      confirm_destroy:
+        description: 'Type "DESTROY" to confirm teardown'
+        required: true
+        type: string
+      destroy_infra:
+        description: 'Also destroy Terraform infrastructure (not just Helm releases)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_VERSION: '1.9.0'
+  CLUSTER_NAME: ${{ secrets.CLUSTER_NAME }}
+  REGION: ${{ secrets.REGION }}
+  GKE_CLUSTER_PREFIX: gke
+  GKE_REGION: ${{ secrets.REGION }}
 
 jobs:
-  destroy:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Safety Gate
+  # ──────────────────────────────────────────────────────────────────────────
+  validate:
+    name: Validate Destroy Request
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+      - name: Confirm destroy intent
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          CONFIRM_ENV="${{ github.event.inputs.confirm_environment }}"
+          CONFIRM_DESTROY="${{ github.event.inputs.confirm_destroy }}"
 
-    - name: Auth GCP
-      uses: google-github-actions/auth@v2
-      with:
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
+          if [[ "$CONFIRM_ENV" != "$ENV" ]]; then
+            echo "::error::Environment confirmation mismatch: expected '$ENV', got '$CONFIRM_ENV'"
+            exit 1
+          fi
 
-    - name: Terraform Destroy
-      run: |
-        cd terraform/envs/${{ inputs.environment }}
-        terraform init
-        terraform destroy -auto-approve
+          if [[ "$CONFIRM_DESTROY" != "DESTROY" ]]; then
+            echo "::error::Destroy not confirmed. You must type 'DESTROY' to proceed."
+            exit 1
+          fi
 
-    - name: Helm Uninstall
-      run: |
-        helm uninstall ecommerce -n ecommerce || true
-        helm uninstall monitoring -n monitoring || true
+          echo "Destroy confirmed for environment: $ENV"
+          echo "## Destroy Confirmed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Environment:** \`$ENV\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Infra destroy:** ${{ github.event.inputs.destroy_infra }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Actor:** @${{ github.actor }}" >> "$GITHUB_STEP_SUMMARY"
 
+  # ──────────────────────────────────────────────────────────────────────────
+  # Helm Teardown
+  # ──────────────────────────────────────────────────────────────────────────
+  helm-teardown:
+    name: Helm Teardown — ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: ${{ github.event.inputs.environment == 'prod' && 'production' || github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Authenticate to GCP
+        uses: ./.github/actions/gcp-auth
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.PROJECT_ID }}
+          setup_gke: 'true'
+          gke_cluster: ${{ env.GKE_CLUSTER_PREFIX }}-${{ github.event.inputs.environment }}
+          gke_location: ${{ env.GKE_REGION }}
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.17.0'
+
+      - name: Pre-teardown snapshot
+        run: |
+          echo "::group::Current State"
+          echo "### Helm Releases"
+          helm list --all-namespaces || echo "No releases found"
+          echo ""
+          echo "### Running Pods"
+          kubectl get pods --all-namespaces -o wide 2>/dev/null || echo "No pods"
+          echo "::endgroup::"
+
+      - name: Uninstall application
+        run: |
+          echo "::group::Uninstall ecommerce"
+          helm uninstall ecommerce -n ecommerce --wait --timeout 3m || echo "::warning::ecommerce release not found"
+          echo "::endgroup::"
+
+      - name: Uninstall monitoring
+        run: |
+          echo "::group::Uninstall monitoring"
+          helm uninstall monitoring -n monitoring --wait --timeout 3m || echo "::warning::monitoring release not found"
+          echo "::endgroup::"
+
+      - name: Cleanup namespaces
+        run: |
+          echo "::group::Namespace cleanup"
+          kubectl delete namespace ecommerce --timeout=60s 2>/dev/null || echo "Namespace ecommerce already removed"
+          kubectl delete namespace monitoring --timeout=60s 2>/dev/null || echo "Namespace monitoring already removed"
+          echo "::endgroup::"
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Terraform Destroy (optional)
+  # ──────────────────────────────────────────────────────────────────────────
+  terraform-destroy:
+    name: Terraform Destroy — ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    needs: helm-teardown
+    if: github.event.inputs.destroy_infra == 'true'
+    environment: ${{ github.event.inputs.environment == 'prod' && 'production' || github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Authenticate to GCP
+        uses: ./.github/actions/gcp-auth
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.PROJECT_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: |
+          terraform init \
+            -backend-config="prefix=terraform/state/${{ github.event.inputs.environment }}" \
+            -var-file="envs/${{ github.event.inputs.environment }}/terraform.tfvars" \
+            -var-file="cicd.tfvars"
+
+      - name: Terraform Plan Destroy
+        working-directory: terraform
+        run: |
+          echo "::group::Terraform Plan Destroy"
+          terraform plan -destroy \
+            -var-file="envs/${{ github.event.inputs.environment }}/terraform.tfvars" \
+            -var-file="cicd.tfvars" \
+            -no-color \
+            -out=tfplan-destroy 2>&1 | tee destroy-plan.txt
+          echo "::endgroup::"
+
+      - name: Terraform Destroy
+        working-directory: terraform
+        run: |
+          echo "::group::Terraform Destroy"
+          terraform apply -auto-approve -input=false tfplan-destroy
+          echo "::endgroup::"
+
+      - name: Destroy summary
+        if: always()
+        run: |
+          echo "## Terraform Destroy — ${{ github.event.inputs.environment }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Status:** \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Actor:** @${{ github.actor }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Timestamp:** $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_STEP_SUMMARY"

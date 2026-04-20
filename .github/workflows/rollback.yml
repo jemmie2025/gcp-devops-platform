@@ -1,0 +1,130 @@
+# ==============================================================================
+# Rollback — Emergency Helm Rollback for Failed Deployments
+# ==============================================================================
+# Manually triggered to roll back a Helm release to a previous revision.
+# Supports both specific revision rollback and "previous" shorthand.
+# ==============================================================================
+
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to roll back'
+        required: true
+        type: choice
+        options: [dev, staging, prod]
+      revision:
+        description: 'Helm revision to roll back to (leave empty for previous)'
+        required: false
+        type: string
+      confirm:
+        description: 'Type "ROLLBACK" to confirm'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  CLUSTER_NAME: ${{ secrets.CLUSTER_NAME }}
+  REGION: ${{ secrets.REGION }}
+  GKE_CLUSTER_PREFIX: gke
+  GKE_REGION: ${{ secrets.REGION }}
+
+jobs:
+  validate:
+    name: Validate Rollback Request
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm rollback intent
+        run: |
+          if [[ "${{ github.event.inputs.confirm }}" != "ROLLBACK" ]]; then
+            echo "::error::Rollback not confirmed. You must type 'ROLLBACK' to proceed."
+            exit 1
+          fi
+          echo "Rollback confirmed for environment: ${{ github.event.inputs.environment }}"
+
+  rollback:
+    name: Rollback — ${{ github.event.inputs.environment }}
+    runs-on: ubuntu-latest
+    needs: validate
+    environment: ${{ github.event.inputs.environment == 'prod' && 'production' || github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Authenticate to GCP
+        uses: ./.github/actions/gcp-auth
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.PROJECT_ID }}
+          setup_gke: 'true'
+          gke_cluster: ${{ env.GKE_CLUSTER_PREFIX }}-${{ github.event.inputs.environment }}
+          gke_location: ${{ env.GKE_REGION }}
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.17.0'
+
+      - name: Pre-rollback snapshot
+        run: |
+          echo "::group::Current State"
+          echo "### Helm History"
+          helm history ecommerce -n ecommerce --max 10 || echo "No history found"
+          echo ""
+          echo "### Current Pods"
+          kubectl get pods -n ecommerce -o wide 2>/dev/null || echo "No pods"
+          echo "::endgroup::"
+
+      - name: Execute rollback
+        id: rollback
+        run: |
+          echo "::group::Helm Rollback"
+          ENV="${{ github.event.inputs.environment }}"
+          REVISION="${{ github.event.inputs.revision }}"
+
+          if [[ -z "$REVISION" ]]; then
+            echo "Rolling back to previous revision..."
+            helm rollback ecommerce 0 -n ecommerce --wait --timeout 5m
+          else
+            echo "Rolling back to revision $REVISION..."
+            helm rollback ecommerce "$REVISION" -n ecommerce --wait --timeout 5m
+          fi
+
+          NEW_REVISION=$(helm history ecommerce -n ecommerce --max 1 -o json | jq -r '.[0].revision')
+          echo "revision=$NEW_REVISION" >> "$GITHUB_OUTPUT"
+          echo "::endgroup::"
+
+      - name: Verify rollback health
+        run: |
+          echo "::group::Post-Rollback Health Check"
+          kubectl rollout status deployment/ecommerce-frontend \
+            -n ecommerce --timeout=120s
+
+          READY_PODS=$(kubectl get pods -n ecommerce -l app.kubernetes.io/component=frontend \
+            -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' | tr ' ' '\n' | grep -c True || true)
+          echo "Ready pods: $READY_PODS"
+
+          if [[ "$READY_PODS" -lt 1 ]]; then
+            echo "::error::Rollback verification failed — no pods are ready"
+            exit 1
+          fi
+          echo "Rollback verified successfully"
+          echo "::endgroup::"
+
+      - name: Rollback summary
+        if: always()
+        run: |
+          echo "## Rollback — ${{ github.event.inputs.environment }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Key | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Status | \`${{ job.status }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Environment | \`${{ github.event.inputs.environment }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Target Revision | \`${{ github.event.inputs.revision || 'previous' }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| New Revision | \`${{ steps.rollback.outputs.revision }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Actor | @${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Timestamp | $(date -u +%Y-%m-%dT%H:%M:%SZ) |" >> "$GITHUB_STEP_SUMMARY"
