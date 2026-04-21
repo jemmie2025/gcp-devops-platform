@@ -1,0 +1,54 @@
+# ==============================================================================
+# Helm Values — staging environment
+# ==============================================================================
+# Production-like settings with moderate resources for validation
+# ==============================================================================
+
+replicaCount: 1
+
+frontend:
+  enabled: true
+  replicas: 2
+  image:
+    repository: europe-west1-docker.pkg.dev/project-bedrock-gcp/ecommerce-frontend/ecommerce-frontend
+    tag: "latest"
+    pullPolicy: Always
+  service:
+    type: LoadBalancer
+    port: 80
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+backend:
+  enabled: true
+  replicas: 2
+  image:
+    repository: gcr.io/google-samples/hello-app
+    tag: "1.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+
+ingress:
+  enabled: true
+  className: gce
+  annotations:
+    kubernetes.io/ingress.class: gce
+    kubernetes.io/ingress.global-static-ip-name: ecommerce-staging-ip
+  hosts:
+    - host: staging.ecommerce.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+resources:
+  requests:
+    cpu: 200m
+  limits:
+    cpu: 400m

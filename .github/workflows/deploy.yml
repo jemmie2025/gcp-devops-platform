@@ -51,6 +51,7 @@ env:
   REGION: ${{ secrets.REGION }}
   GKE_CLUSTER_PREFIX: gke
   GKE_REGION: ${{ secrets.REGION }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────────

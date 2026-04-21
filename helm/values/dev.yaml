@@ -1,0 +1,45 @@
+# ==============================================================================
+# Helm Values — dev environment
+# ==============================================================================
+# Low resource limits, single replicas, debug-friendly settings
+# ==============================================================================
+
+replicaCount: 1
+
+frontend:
+  enabled: true
+  replicas: 1
+  image:
+    repository: europe-west1-docker.pkg.dev/project-bedrock-gcp/ecommerce-frontend/ecommerce-frontend
+    tag: "latest"
+    pullPolicy: Always
+  service:
+    type: LoadBalancer
+    port: 80
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+backend:
+  enabled: true
+  replicas: 1
+  image:
+    repository: gcr.io/google-samples/hello-app
+    tag: "1.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+
+ingress:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 100m
+  limits:
+    cpu: 250m
