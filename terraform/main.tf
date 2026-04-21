@@ -3,6 +3,21 @@ locals {
   manage_shared_infra = var.environment == "dev"
 }
 
+moved {
+  from = module.network
+  to   = module.network[0]
+}
+
+moved {
+  from = module.gke
+  to   = module.gke[0]
+}
+
+moved {
+  from = module.iam
+  to   = module.iam[0]
+}
+
 module "network" {
   source = "./modules/network"
   count  = local.manage_shared_infra ? 1 : 0
