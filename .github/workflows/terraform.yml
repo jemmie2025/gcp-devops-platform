@@ -147,7 +147,6 @@ jobs:
       - id: plan
         name: Terraform Plan
         working-directory: ${{ env.TF_WORKING_DIR }}
-        continue-on-error: true
         run: |
           set +e
           terraform plan \
@@ -155,8 +154,9 @@ jobs:
             -var-file="cicd.tfvars" \
             -detailed-exitcode \
             -no-color \
-            -out=tfplan-${{ matrix.environment }} 2>&1 | tee plan-output.txt
+            -out=tfplan-${{ matrix.environment }} > plan-output.txt 2>&1
           EXITCODE=$?
+          cat plan-output.txt
           echo "exitcode=$EXITCODE" >> "$GITHUB_OUTPUT"
           if [[ $EXITCODE -eq 1 ]]; then exit 1; fi
 
