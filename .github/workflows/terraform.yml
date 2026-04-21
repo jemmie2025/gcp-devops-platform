@@ -141,8 +141,7 @@ jobs:
         run: |
           terraform init \
             -backend-config="prefix=terraform/state/${{ matrix.environment }}" \
-            -var-file="envs/${{ matrix.environment }}/terraform.tfvars" \
-            -var-file="cicd.tfvars"
+            -var-file="envs/${{ matrix.environment }}/terraform.tfvars"
 
       - id: plan
         name: Terraform Plan
@@ -151,7 +150,6 @@ jobs:
           set +e
           terraform plan \
             -var-file="envs/${{ matrix.environment }}/terraform.tfvars" \
-            -var-file="cicd.tfvars" \
             -detailed-exitcode \
             -no-color \
             -out=tfplan-${{ matrix.environment }} > plan-output.txt 2>&1
@@ -270,8 +268,7 @@ jobs:
         run: |
           terraform init \
             -backend-config="prefix=terraform/state/dev" \
-            -var-file="envs/dev/terraform.tfvars" \
-            -var-file="cicd.tfvars"
+            -var-file="envs/dev/terraform.tfvars"
 
       - name: Terraform Apply
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -335,8 +332,7 @@ jobs:
         run: |
           terraform init \
             -backend-config="prefix=terraform/state/staging" \
-            -var-file="envs/staging/terraform.tfvars" \
-            -var-file="cicd.tfvars"
+            -var-file="envs/staging/terraform.tfvars"
 
       - name: Terraform Apply
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -400,8 +396,7 @@ jobs:
         run: |
           terraform init \
             -backend-config="prefix=terraform/state/prod" \
-            -var-file="envs/prod/terraform.tfvars" \
-            -var-file="cicd.tfvars"
+            -var-file="envs/prod/terraform.tfvars"
 
       - name: Terraform Apply
         working-directory: ${{ env.TF_WORKING_DIR }}
