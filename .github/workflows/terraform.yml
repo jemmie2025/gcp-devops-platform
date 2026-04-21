@@ -263,7 +263,7 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: tfplan-dev
-          path: ${{ env.TF_WORKING_DIR }}
+          path: ${{ github.workspace }}
 
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -326,7 +326,7 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: tfplan-staging
-          path: ${{ env.TF_WORKING_DIR }}
+          path: ${{ github.workspace }}
 
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
@@ -389,7 +389,7 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           name: tfplan-prod
-          path: ${{ env.TF_WORKING_DIR }}
+          path: ${{ github.workspace }}
 
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
