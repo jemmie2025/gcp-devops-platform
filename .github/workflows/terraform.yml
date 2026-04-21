@@ -48,6 +48,7 @@ env:
   TF_WORKING_DIR: terraform
   TF_IN_AUTOMATION: 'true'
   TF_INPUT: 'false'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────────
@@ -234,7 +235,8 @@ jobs:
     needs: [setup, plan]
     if: |
       needs.setup.outputs.is_apply == 'true' &&
-      contains(needs.setup.outputs.environments, 'dev')
+      contains(needs.setup.outputs.environments, 'dev') &&
+      needs.plan.outputs.plan_exitcode == '2'
     environment: dev
     steps:
       - uses: actions/checkout@v5
@@ -297,7 +299,8 @@ jobs:
     needs: [setup, plan]
     if: |
       needs.setup.outputs.is_apply == 'true' &&
-      contains(needs.setup.outputs.environments, 'staging')
+      contains(needs.setup.outputs.environments, 'staging') &&
+      needs.plan.outputs.plan_exitcode == '2'
     environment: staging
     steps:
       - uses: actions/checkout@v5
@@ -360,7 +363,8 @@ jobs:
     needs: [setup, plan]
     if: |
       needs.setup.outputs.is_apply == 'true' &&
-      contains(needs.setup.outputs.environments, 'prod')
+      contains(needs.setup.outputs.environments, 'prod') &&
+      needs.plan.outputs.plan_exitcode == '2'
     environment: production
     steps:
       - uses: actions/checkout@v5
