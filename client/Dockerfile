@@ -13,10 +13,11 @@ COPY . .
 RUN npm run build || npm run dist || (mkdir -p dist && cp index.html dist/)
 
 # Stage 2: Runtime with Nginx
-FROM nginx:1.25-alpine
+# Use a current nginx-alpine tag to stay on a supported Alpine release.
+FROM nginx:1.27-alpine
 
 # Install curl for health checks
-RUN apk add --no-cache curl
+RUN apk upgrade --no-cache && apk add --no-cache curl
 
 # Create directories with write permissions for nginx user
 RUN mkdir -p /var/run/nginx /var/cache/nginx /var/log/nginx /usr/share/nginx/html && \
