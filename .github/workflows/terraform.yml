@@ -68,10 +68,10 @@ jobs:
             echo "environments=[\"${{ github.event.inputs.environment }}\"]" >> "$GITHUB_OUTPUT"
             echo "is_apply=${{ github.event.inputs.action == 'apply' }}" >> "$GITHUB_OUTPUT"
           elif [[ "${{ github.event_name }}" == "push" ]]; then
-            echo 'environments=["dev","staging","prod"]' >> "$GITHUB_OUTPUT"
+            echo 'environments=["dev"]' >> "$GITHUB_OUTPUT"
             echo "is_apply=true" >> "$GITHUB_OUTPUT"
           else
-            echo 'environments=["dev","staging","prod"]' >> "$GITHUB_OUTPUT"
+            echo 'environments=["dev"]' >> "$GITHUB_OUTPUT"
             echo "is_apply=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -139,8 +139,13 @@ jobs:
       - name: Terraform Init
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
+          BACKEND_PREFIX="terraform/state/${{ matrix.environment }}"
+          if [[ "${{ matrix.environment }}" == "dev" ]]; then
+            BACKEND_PREFIX="terraform/state"
+          fi
+
           terraform init \
-            -backend-config="prefix=terraform/state/${{ matrix.environment }}" \
+            -backend-config="prefix=${BACKEND_PREFIX}" \
             -var-file="envs/${{ matrix.environment }}/terraform.tfvars"
 
       - id: plan
@@ -267,7 +272,7 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           terraform init \
-            -backend-config="prefix=terraform/state/dev" \
+            -backend-config="prefix=terraform/state" \
             -var-file="envs/dev/terraform.tfvars"
 
       - name: Terraform Apply
