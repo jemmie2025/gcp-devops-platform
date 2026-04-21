@@ -277,7 +277,9 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           echo "::group::Terraform Apply — dev"
-          terraform apply -auto-approve -input=false tfplan-dev
+          PLAN_FILE=$(find "$GITHUB_WORKSPACE" -name "tfplan-dev" -type f | head -1)
+          echo "Found plan: $PLAN_FILE"
+          terraform apply -auto-approve -input=false "$PLAN_FILE"
           echo "::endgroup::"
 
       - name: Apply summary
@@ -340,7 +342,9 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           echo "::group::Terraform Apply — staging"
-          terraform apply -auto-approve -input=false tfplan-staging
+          PLAN_FILE=$(find "$GITHUB_WORKSPACE" -name "tfplan-staging" -type f | head -1)
+          echo "Found plan: $PLAN_FILE"
+          terraform apply -auto-approve -input=false "$PLAN_FILE"
           echo "::endgroup::"
 
       - name: Apply summary
@@ -403,7 +407,9 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         run: |
           echo "::group::Terraform Apply — production"
-          terraform apply -auto-approve -input=false tfplan-prod
+          PLAN_FILE=$(find "$GITHUB_WORKSPACE" -name "tfplan-prod" -type f | head -1)
+          echo "Found plan: $PLAN_FILE"
+          terraform apply -auto-approve -input=false "$PLAN_FILE"
           echo "::endgroup::"
 
       - name: Apply summary
