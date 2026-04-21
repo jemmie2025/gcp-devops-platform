@@ -27,12 +27,6 @@ locals {
   workload_identity_provider_name = "${local.workload_identity_pool_name}/providers/${local.workload_identity_provider_id}"
 }
 
-resource "google_service_account_iam_member" "wif_binding" {
-  service_account_id = google_service_account.devops_sa.name
-  role               = "roles/iam.workloadIdentityUser"
-  member             = "principalSet://iam.googleapis.com/${local.workload_identity_pool_name}/attribute.repository/${var.github_repo_owner}/${var.github_repo_name}"
-}
-
 output "devops_sa_email" {
   value = google_service_account.devops_sa.email
 }

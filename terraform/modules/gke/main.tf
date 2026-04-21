@@ -70,6 +70,11 @@ resource "google_container_node_pool" "primary_nodes" {
     min_node_count = 1
     max_node_count = 10
   }
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = all
+  }
 }
 
 resource "google_service_account" "gke_sa" {
