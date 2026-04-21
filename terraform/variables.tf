@@ -24,5 +24,26 @@ variable "environment" {
   type        = string
 }
 
-# Add other GCP vars as needed
+variable "gke_cluster_name" {
+  description = "GKE cluster name"
+  type        = string
+  default     = "gke-dev"
+}
+
+variable "network_name" {
+  description = "VPC network name"
+  type        = string
+  default     = "vpc-dev"
+}
+
+variable "project_number" {
+  description = "GCP Project Number"
+  type        = string
+}
+
+variable "gcp_project_id" {
+  description = "GCP Project ID (alias used in tfvars)"
+  type        = string
+  default     = ""
+}
 

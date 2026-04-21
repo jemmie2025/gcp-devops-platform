@@ -68,10 +68,10 @@ jobs:
             echo "environments=[\"${{ github.event.inputs.environment }}\"]" >> "$GITHUB_OUTPUT"
             echo "is_apply=${{ github.event.inputs.action == 'apply' }}" >> "$GITHUB_OUTPUT"
           elif [[ "${{ github.event_name }}" == "push" ]]; then
-            echo 'environments=["dev"]' >> "$GITHUB_OUTPUT"
+            echo 'environments=["dev","staging","prod"]' >> "$GITHUB_OUTPUT"
             echo "is_apply=true" >> "$GITHUB_OUTPUT"
           else
-            echo 'environments=["dev"]' >> "$GITHUB_OUTPUT"
+            echo 'environments=["dev","staging","prod"]' >> "$GITHUB_OUTPUT"
             echo "is_apply=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -235,8 +235,7 @@ jobs:
     needs: [setup, plan]
     if: |
       needs.setup.outputs.is_apply == 'true' &&
-      contains(needs.setup.outputs.environments, 'dev') &&
-      needs.plan.outputs.plan_exitcode == '2'
+      contains(needs.setup.outputs.environments, 'dev')
     environment: dev
     steps:
       - uses: actions/checkout@v5
@@ -299,8 +298,7 @@ jobs:
     needs: [setup, plan]
     if: |
       needs.setup.outputs.is_apply == 'true' &&
-      contains(needs.setup.outputs.environments, 'staging') &&
-      needs.plan.outputs.plan_exitcode == '2'
+      contains(needs.setup.outputs.environments, 'staging')
     environment: staging
     steps:
       - uses: actions/checkout@v5
@@ -363,8 +361,7 @@ jobs:
     needs: [setup, plan]
     if: |
       needs.setup.outputs.is_apply == 'true' &&
-      contains(needs.setup.outputs.environments, 'prod') &&
-      needs.plan.outputs.plan_exitcode == '2'
+      contains(needs.setup.outputs.environments, 'prod')
     environment: production
     steps:
       - uses: actions/checkout@v5
