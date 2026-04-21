@@ -5,11 +5,11 @@ output "service_account_email" {
 
 output "workload_identity_provider" {
   description = "Full WIF provider resource name for GitHub Actions auth"
-  value       = google_iam_workload_identity_pool_provider.github.name
+  value       = local.workload_identity_provider_name
 }
 
 output "workload_identity_pool_id" {
   description = "WIF pool ID"
-  value       = google_iam_workload_identity_pool.github.workload_identity_pool_id
+  value       = local.workload_identity_pool_id
 }
 

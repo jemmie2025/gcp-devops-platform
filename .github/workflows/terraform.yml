@@ -173,18 +173,11 @@ jobs:
 
           terraform import \
             -var-file="envs/${{ matrix.environment }}/terraform.tfvars" \
-            module.iam.google_iam_workload_identity_pool.github \
-            projects/233859158421/locations/global/workloadIdentityPools/github-actions-pool 2>&1 | tail -5 || true
-
-          terraform import \
-            -var-file="envs/${{ matrix.environment }}/terraform.tfvars" \
-            module.iam.google_iam_workload_identity_pool_provider.github \
-            projects/233859158421/locations/global/workloadIdentityPools/github-actions-pool/providers/github-provider 2>&1 | tail -5 || true
-
-          terraform import \
-            -var-file="envs/${{ matrix.environment }}/terraform.tfvars" \
             module.gke.google_container_node_pool.primary_nodes \
             projects/project-bedrock-gcp/locations/europe-west1/clusters/gke-dev/nodePools/gke-dev-nodes 2>&1 | tail -5 || true
+
+          terraform untaint \
+            module.gke.google_container_node_pool.primary_nodes 2>&1 | tail -5 || true
 
       - id: plan
         name: Terraform Plan
