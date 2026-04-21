@@ -192,7 +192,7 @@ jobs:
           gke_location: ${{ env.GKE_REGION }}
 
       - name: Set up Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
         with:
           version: 'v3.17.0'
 
@@ -319,11 +319,11 @@ jobs:
           service_account: ${{ secrets.SERVICE_ACCOUNT }}
           project_id: ${{ secrets.PROJECT_ID }}
           setup_gke: 'true'
-          gke_cluster: ${{ env.GKE_CLUSTER_PREFIX }}-staging
+          gke_cluster: ${{ secrets.CLUSTER_NAME }}
           gke_location: ${{ env.GKE_REGION }}
 
       - name: Set up Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
         with:
           version: 'v3.17.0'
 
@@ -441,11 +441,11 @@ jobs:
           service_account: ${{ secrets.SERVICE_ACCOUNT }}
           project_id: ${{ secrets.PROJECT_ID }}
           setup_gke: 'true'
-          gke_cluster: ${{ env.GKE_CLUSTER_PREFIX }}-prod
+          gke_cluster: ${{ secrets.CLUSTER_NAME }}
           gke_location: ${{ env.GKE_REGION }}
 
       - name: Set up Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
         with:
           version: 'v3.17.0'
 
@@ -576,11 +576,11 @@ jobs:
           service_account: ${{ secrets.SERVICE_ACCOUNT }}
           project_id: ${{ secrets.PROJECT_ID }}
           setup_gke: 'true'
-          gke_cluster: ${{ env.GKE_CLUSTER_PREFIX }}-${{ needs.setup.outputs.environment }}
+          gke_cluster: ${{ secrets.CLUSTER_NAME }}
           gke_location: ${{ env.GKE_REGION }}
 
       - name: Set up Helm
-        uses: azure/setup-helm@v4
+        uses: azure/setup-helm@v5
         with:
           version: 'v3.17.0'
 
