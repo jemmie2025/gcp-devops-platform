@@ -2,7 +2,7 @@ resource "google_storage_bucket" "assets" {
   name          = "ecommerce-${var.environment}-assets-${random_id.bucket_suffix.hex}"
   location      = var.region
   force_destroy = var.environment != "prod"
-  storage_class = var.environment == "prod" ? "STANDARD" : "MULTI_REGIONAL"
+  storage_class = "REGIONAL"
   project       = var.project_id
 
   uniform_bucket_level_access = true

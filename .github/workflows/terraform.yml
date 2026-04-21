@@ -148,6 +148,29 @@ jobs:
             -backend-config="prefix=${BACKEND_PREFIX}" \
             -var-file="envs/${{ matrix.environment }}/terraform.tfvars"
 
+      - name: Import existing GCP resources into state
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        if: matrix.environment == 'dev'
+        env:
+          TF_VAR_file: envs/${{ matrix.environment }}/terraform.tfvars
+        run: |
+          # Import resources that exist in GCP but may not be in Terraform state.
+          # Using || true so already-imported resources are silently skipped.
+          terraform import \
+            -var-file="envs/${{ matrix.environment }}/terraform.tfvars" \
+            module.gke.google_container_cluster.primary \
+            projects/project-bedrock-gcp/locations/europe-west1/clusters/gke-dev 2>&1 | tail -5 || true
+
+          terraform import \
+            -var-file="envs/${{ matrix.environment }}/terraform.tfvars" \
+            module.gke.google_service_account.gke_sa \
+            projects/project-bedrock-gcp/serviceAccounts/gke-sa-dev@project-bedrock-gcp.iam.gserviceaccount.com 2>&1 | tail -5 || true
+
+          terraform import \
+            -var-file="envs/${{ matrix.environment }}/terraform.tfvars" \
+            module.iam.google_service_account.devops_sa \
+            projects/project-bedrock-gcp/serviceAccounts/devops-terraform-sa@project-bedrock-gcp.iam.gserviceaccount.com 2>&1 | tail -5 || true
+
       - id: plan
         name: Terraform Plan
         working-directory: ${{ env.TF_WORKING_DIR }}

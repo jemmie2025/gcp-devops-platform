@@ -36,6 +36,11 @@ resource "google_container_cluster" "primary" {
   }
 
   depends_on = []
+
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [network, subnetwork, node_config, node_pool, initial_node_count, min_master_version, private_cluster_config, master_authorized_networks_config]
+  }
 }
 
 resource "google_container_node_pool" "primary_nodes" {
