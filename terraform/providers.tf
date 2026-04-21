@@ -24,17 +24,21 @@ provider "google" {
   region  = var.region
 }
 
+data "google_client_config" "default" {
+  count = local.manage_shared_infra ? 1 : 0
+}
+
 provider "helm" {
   kubernetes {
-    host                   = module.gke.endpoint
-    token                  = data.google_client_config.default.access_token
-    cluster_ca_certificate = base64decode(module.gke.ca_certificate)
+    host                   = local.manage_shared_infra ? module.gke[0].endpoint : "https://127.0.0.1"
+    token                  = local.manage_shared_infra ? data.google_client_config.default[0].access_token : ""
+    cluster_ca_certificate = local.manage_shared_infra ? base64decode(module.gke[0].ca_certificate) : ""
   }
 }
 
 provider "kubernetes" {
-  host                   = module.gke.endpoint
-  token                  = data.google_client_config.default.access_token
-  cluster_ca_certificate = base64decode(module.gke.ca_certificate)
+  host                   = local.manage_shared_infra ? module.gke[0].endpoint : "https://127.0.0.1"
+  token                  = local.manage_shared_infra ? data.google_client_config.default[0].access_token : ""
+  cluster_ca_certificate = local.manage_shared_infra ? base64decode(module.gke[0].ca_certificate) : ""
 }
 

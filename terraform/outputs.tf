@@ -2,12 +2,12 @@
 
 output "cluster_endpoint" {
   description = "GKE control plane endpoint"
-  value       = module.gke.endpoint
+  value       = local.manage_shared_infra ? module.gke[0].endpoint : null
 }
 
 output "cluster_name" {
   description = "GKE cluster name"
-  value       = module.gke.cluster_name
+  value       = var.gke_cluster_name
 }
 
 output "region" {
@@ -17,12 +17,12 @@ output "region" {
 
 output "network_name" {
   description = "VPC network name"
-  value       = module.network.network_name
+  value       = var.network_name
 }
 
 output "subnets" {
   description = "Subnets map"
-  value       = module.network.subnets
+  value       = local.manage_shared_infra ? module.network[0].subnets : null
 }
 
 output "assets_bucket_name" {
@@ -32,16 +32,16 @@ output "assets_bucket_name" {
 
 output "configure_kubectl" {
   description = "Command to configure kubectl"
-  value       = "gcloud container clusters get-credentials ${module.gke.cluster_name} --region ${var.region}"
+  value       = "gcloud container clusters get-credentials ${var.gke_cluster_name} --region ${var.region}"
 }
 
 output "workload_identity_provider" {
   description = "WIF provider resource name — set as GCP_WORKLOAD_IDENTITY_PROVIDER GitHub variable"
-  value       = module.iam.workload_identity_provider
+  value       = local.manage_shared_infra ? module.iam[0].workload_identity_provider : null
 }
 
 output "service_account_email" {
   description = "DevOps SA email — set as GCP_SERVICE_ACCOUNT GitHub variable"
-  value       = module.iam.service_account_email
+  value       = local.manage_shared_infra ? module.iam[0].service_account_email : null
 }
 

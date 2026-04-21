@@ -1,9 +1,11 @@
 locals {
-  project_id = coalesce(var.gcp_project_id, var.project_id)
+  project_id          = coalesce(var.gcp_project_id, var.project_id)
+  manage_shared_infra = var.environment == "dev"
 }
 
 module "network" {
   source = "./modules/network"
+  count  = local.manage_shared_infra ? 1 : 0
 
   project_id   = local.project_id
   environment  = var.environment
@@ -20,12 +22,13 @@ module "network" {
 
 module "gke" {
   source = "./modules/gke"
+  count  = local.manage_shared_infra ? 1 : 0
 
   project_id   = local.project_id
   environment  = var.environment
   region       = var.region
-  network_name = module.network.network_name
-  subnets      = module.network.subnets
+  network_name = module.network[0].network_name
+  subnets      = module.network[0].subnets
   cluster_name = var.gke_cluster_name
 }
 
@@ -50,6 +53,7 @@ module "serverless" {
 
 module "iam" {
   source = "./modules/iam"
+  count  = local.manage_shared_infra ? 1 : 0
 
   project_id     = local.project_id
   project_number = var.project_number
