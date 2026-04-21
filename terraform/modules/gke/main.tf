@@ -7,7 +7,7 @@ resource "google_container_cluster" "primary" {
   initial_node_count       = 1
 
   network    = var.network_name
-  subnetwork = values(var.subnets)[0]  # Primary private subnet
+  subnetwork = values(var.subnets)[0] # Primary private subnet
 
   master_auth {
 
@@ -21,13 +21,13 @@ resource "google_container_cluster" "primary" {
 
   master_authorized_networks_config {
     cidr_blocks {
-      cidr_block   = "0.0.0.0/0"  # Restrict in prod
+      cidr_block   = "0.0.0.0/0" # Restrict in prod
       display_name = "all"
     }
   }
 
   private_cluster_config {
-    enable_private_nodes    = true
+    enable_private_nodes   = true
     master_ipv4_cidr_block = "172.16.0.0/28"
   }
 
