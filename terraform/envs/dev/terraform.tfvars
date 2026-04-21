@@ -1,4 +1,5 @@
 gcp_project_id   = "project-bedrock-gcp"
+project_id       = "project-bedrock-gcp"
 environment      = "dev"
 gke_cluster_name = "gke-dev"
 network_name     = "vpc-dev"
