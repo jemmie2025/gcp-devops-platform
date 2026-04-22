@@ -154,28 +154,14 @@ jobs:
         working-directory: terraform
         run: |
           terraform init \
-            -backend-config="prefix=terraform/state/${{ github.event.inputs.environment }}" \
-            -var-file="envs/${{ github.event.inputs.environment }}/terraform.tfvars" \
-            -var-file="cicd.tfvars"
-
-      - name: Terraform Plan Destroy
-        working-directory: terraform
-        run: |
-          echo "::group::Terraform Plan Destroy"
-          terraform plan -destroy \
-            -var-file="envs/${{ github.event.inputs.environment }}/terraform.tfvars" \
-            -var-file="cicd.tfvars" \
-            -no-color \
-            -out=tfplan-destroy 2>&1 | tee destroy-plan.txt
-          echo "::endgroup::"
+            -backend-config="prefix=terraform/state/${{ github.event.inputs.environment }}"
 
       - name: Terraform Destroy
         working-directory: terraform
         run: |
           echo "::group::Terraform Destroy"
           terraform destroy -auto-approve -input=false \
-            -var-file="envs/${{ github.event.inputs.environment }}/terraform.tfvars" \
-            -var-file="cicd.tfvars"
+            -var-file="envs/${{ github.event.inputs.environment }}/terraform.tfvars"
           echo "::endgroup::"
 
       - name: Destroy summary
