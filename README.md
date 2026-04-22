@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# gcp-devops-platform
-=======
 # Jemmie's Store – GCP DevOps Platform (Kubernetes, CI/CD & Observability)
 
 A complete DevOps portfolio project demonstrating end-to-end cloud-native engineering on Google Cloud Platform (GCP), including infrastructure provisioning, containerisation, Kubernetes orchestration, CI/CD pipelines, observability, and production teardown.
@@ -113,6 +110,56 @@ kubectl set image deployment/frontend frontend=<image>:5.6.0
 kubectl rollout status deployment/frontend
 ```
 
+## Preflight Checks
+
+The pipeline uses a fail-fast preflight stage before build, deploy, rollback, and Terraform operations. This keeps CI/CD fast and prevents downstream failures when core dependencies are missing.
+
+Preflight validates only essential items:
+- Required GitHub secrets exist
+- OIDC authentication to GCP works
+- gcloud is configured to the expected project
+- Artifact Registry exists in the target region
+- GKE cluster exists and is reachable
+
+Core preflight commands used:
+
+```bash
+gcloud auth list --filter=status:ACTIVE --format="value(account)"
+gcloud config get-value project
+gcloud artifacts repositories describe ecommerce-frontend --location=europe-west1 --project=project-bedrock-gcp
+gcloud container clusters describe gke-dev --region=europe-west1 --project=project-bedrock-gcp --format="value(status)"
+kubectl cluster-info
+```
+
+GitHub Actions and GitHub CLI commands used to implement and verify preflight:
+
+```bash
+git status
+git --no-pager diff -- .github/workflows/<workflow>.yml
+git add .github/workflows/<workflow>.yml
+git commit -m "feat: add preflight checks"
+git push origin main
+
+gh workflow run deploy.yml
+gh workflow run terraform.yml -f environment=dev -f action=apply
+gh workflow run ci.yml
+gh workflow run rollback.yml -f environment=dev -f confirm=ROLLBACK
+
+gh run list --workflow=<workflow>.yml --limit 1 --json databaseId -q '.[0].databaseId'
+gh api repos/jemmie2025/gcp-devops-platform/actions/runs/<run_id> --jq '{status,conclusion,event}'
+gh api repos/jemmie2025/gcp-devops-platform/actions/runs/<run_id>/jobs --jq '.jobs[] | {name,status,conclusion}'
+gh run view <run_id> --log-failed
+```
+
+GitHub workflow permissions required:
+- `contents: read`
+- `id-token: write`
+
+Minimum IAM roles used by the federated service account:
+- `roles/artifactregistry.reader`
+- `roles/container.clusterViewer`
+- `roles/iam.workloadIdentityUser`
+
 ## Kubernetes Architecture
 
 Namespaces:
@@ -180,10 +227,7 @@ client/           frontend
 terraform/        infrastructure
 kubernetes/       manifests
 helm/             charts
-monitoring/       observability
-scripts/          automation
-cloud-functions/  serverless
-docs/             documentation
+.github/          CI/CD workflows and reusable actions
 ```
 
 ## How to Reproduce
@@ -207,4 +251,3 @@ kubectl apply -f kubernetes/
 ## License
 
 MIT License – For educational and portfolio use only.
->>>>>>> aff4796 (Initial production-grade DevOps platform (GKE + Terraform + CI/CD + Observability))

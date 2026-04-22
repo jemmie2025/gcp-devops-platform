@@ -542,7 +542,7 @@ Pre-configured automatically by the Helm chart:
 
 ### Alert Rules
 
-Custom rules defined in `monitoring/alerts/alert-rules.yaml`:
+Custom rules are managed via the kube-prometheus-stack deployment in the `monitoring` namespace:
 
 - Pod CrashLoopBackOff (>5 restarts in 15 min)
 - High CPU utilisation (>90% for 5 min)
@@ -605,14 +605,13 @@ gcloud logging read \
 ```
 helm/
 ├── charts/
-│   ├── ecommerce/              # Application chart
-│   │   ├── Chart.yaml
-│   │   ├── values.yaml         # Default values
-│   │   └── templates/          # Deployment, Service, Ingress, etc.
-│   └── monitoring/             # Monitoring chart
-│       └── Chart.yaml
+│   └── ecommerce/              # Application chart
+│       ├── Chart.yaml
+│       ├── values.yaml         # Default values
+│       └── templates/          # Deployment, Service, Ingress, etc.
 └── values/
     ├── dev.yaml                # Development overrides
+  ├── staging.yaml            # Staging overrides
     └── prod.yaml               # Production overrides
 ```
 

@@ -1,88 +1,47 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
-# Local .terraform directories
-.terraform/
-
-# .tfstate files
-*.tfstate
-*.tfstate.*
-
-# Crash log files
-crash.log
-crash.*.log
-
-# Track per-environment tfvars (no secrets — only region/cluster/project refs)
-!terraform/envs/**/*.tfvars
-
-# Exclude all .tfvars files, which are likely to contain sensitive data, such as
-# password, private keys, and other secrets. These should not be part of version 
-# control as they are data points which are potentially sensitive and subject 
-# to change depending on the environment.
-*.tfvars
-*.tfvars.json
-
-# Ignore override files as they are usually used to override resources locally and so
-# are not checked in
-=======
-=======
 # =========================
->>>>>>> 6735fbf (Initial production-grade DevOps platform (GKE + Terraform + CI/CD + Observability))
 # Terraform
 # =========================
-.terraform/
+terraform/.terraform/
+**/.terraform/
 *.tfstate
 *.tfstate.*
 *.tfvars
 *.tfvars.json
-terraform.tfvars
-!terraform.tfvars.example
-.terraform.lock.hcl
-<<<<<<< HEAD
+!terraform/envs/**/*.tfvars
 .terraform.tfstate.lock.info
 crash.log
 crash.*.log
->>>>>>> aff4796 (Initial production-grade DevOps platform (GKE + Terraform + CI/CD + Observability))
-override.tf
-override.tf.json
-*_override.tf
-*_override.tf.json
-<<<<<<< HEAD
-
-# Ignore transient lock info files created by terraform apply
-.terraform.tfstate.lock.info
-
-# Include override files you do wish to add to version control using negated pattern
-# !example_override.tf
-
-# Include tfplan files to ignore the plan output of command: terraform plan -out=tfplan
-# example: *tfplan*
-
-# Ignore CLI configuration files
 .terraformrc
 terraform.rc
-=======
-=======
->>>>>>> 6735fbf (Initial production-grade DevOps platform (GKE + Terraform + CI/CD + Observability))
-.terraformrc
-terraform.rc
-crash.log
-crash.*.log
 *tfplan*
-*.zip
-function.zip
 
+# =========================
+# Packaging
+# =========================
+function.zip
+*.zip
+
+# =========================
+# GCP local credentials/config
+# =========================
 .gcloud/
 application_default_credentials.json
 credentials.json
 boto_config
 gsutil_config.json
-# Node.js / Frontend
+
+# =========================
+# Node / frontend artifacts
+# =========================
 node_modules/
 dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-package-lock.json
+
+# =========================
+# Editor and OS files
+# =========================
 .vscode/
 .idea/
 *.swp
@@ -90,11 +49,13 @@ package-lock.json
 *~
 .DS_Store
 Thumbs.db
+
+# =========================
+# Secrets and misc runtime files
+# =========================
 *.log
 *.pem
 *.key
 *.p12
 *.pfx
-*.tmp
-
 *.tmp
