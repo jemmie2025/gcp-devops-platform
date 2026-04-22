@@ -88,43 +88,21 @@ jobs:
           workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.SERVICE_ACCOUNT }}
           project_id: ${{ secrets.PROJECT_ID }}
-          setup_gke: 'true'
-          gke_cluster: ${{ env.GKE_CLUSTER_PREFIX }}-${{ github.event.inputs.environment }}
-          gke_location: ${{ env.GKE_REGION }}
 
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
-        with:
-          version: 'v3.17.0'
-
-      - name: Pre-teardown snapshot
+      - name: Check cluster exists and teardown Helm
         run: |
-          echo "::group::Current State"
-          echo "### Helm Releases"
-          helm list --all-namespaces || echo "No releases found"
-          echo ""
-          echo "### Running Pods"
-          kubectl get pods --all-namespaces -o wide 2>/dev/null || echo "No pods"
-          echo "::endgroup::"
-
-      - name: Uninstall application
-        run: |
-          echo "::group::Uninstall ecommerce"
-          helm uninstall ecommerce -n ecommerce --wait --timeout 3m || echo "::warning::ecommerce release not found"
-          echo "::endgroup::"
-
-      - name: Uninstall monitoring
-        run: |
-          echo "::group::Uninstall monitoring"
-          helm uninstall monitoring -n monitoring --wait --timeout 3m || echo "::warning::monitoring release not found"
-          echo "::endgroup::"
-
-      - name: Cleanup namespaces
-        run: |
-          echo "::group::Namespace cleanup"
-          kubectl delete namespace ecommerce --timeout=60s 2>/dev/null || echo "Namespace ecommerce already removed"
-          kubectl delete namespace monitoring --timeout=60s 2>/dev/null || echo "Namespace monitoring already removed"
-          echo "::endgroup::"
+          CLUSTER="${{ env.GKE_CLUSTER_PREFIX }}-${{ github.event.inputs.environment }}"
+          if gcloud container clusters describe "$CLUSTER" --region="${{ env.GKE_REGION }}" --project="${{ secrets.PROJECT_ID }}" &>/dev/null; then
+            echo "Cluster $CLUSTER found — getting credentials"
+            gcloud container clusters get-credentials "$CLUSTER" --region="${{ env.GKE_REGION }}" --project="${{ secrets.PROJECT_ID }}"
+            curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash -s -- --version v3.17.0 >/dev/null
+            helm uninstall ecommerce -n ecommerce --wait --timeout 3m 2>/dev/null || echo "ecommerce release not found"
+            helm uninstall monitoring -n monitoring --wait --timeout 3m 2>/dev/null || echo "monitoring release not found"
+            kubectl delete namespace ecommerce --timeout=60s 2>/dev/null || true
+            kubectl delete namespace monitoring --timeout=60s 2>/dev/null || true
+          else
+            echo "Cluster $CLUSTER not found — skipping Helm teardown"
+          fi
 
   # ──────────────────────────────────────────────────────────────────────────
   # Terraform Destroy (optional)
