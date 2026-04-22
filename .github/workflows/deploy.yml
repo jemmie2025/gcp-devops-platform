@@ -55,11 +55,165 @@ env:
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────────
+  # Preflight — Validate all external dependencies before spending build time
+  # Checks: secrets present, GCP auth, Artifact Registry, GKE reachability, IAM
+  # A failure here means the pipeline stops immediately with a clear error.
+  # ──────────────────────────────────────────────────────────────────────────
+  preflight:
+    name: Preflight Checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # ── 1. Validate required secrets are populated ─────────────────────────
+      - name: Validate required secrets
+        run: |
+          set -e
+          echo "::group::Secret presence check"
+          MISSING=()
+
+          [[ -z "${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}" ]] && MISSING+=("WORKLOAD_IDENTITY_PROVIDER")
+          [[ -z "${{ secrets.SERVICE_ACCOUNT }}"            ]] && MISSING+=("SERVICE_ACCOUNT")
+          [[ -z "${{ secrets.PROJECT_ID }}"                 ]] && MISSING+=("PROJECT_ID")
+          [[ -z "${{ secrets.REGION }}"                     ]] && MISSING+=("REGION")
+          [[ -z "${{ secrets.CLUSTER_NAME }}"               ]] && MISSING+=("CLUSTER_NAME")
+
+          if [[ ${#MISSING[@]} -gt 0 ]]; then
+            echo "::error::Missing required GitHub secrets: ${MISSING[*]}"
+            echo "Add these secrets under Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+          echo "All required secrets are present."
+          echo "::endgroup::"
+
+      # ── 2. Authenticate to GCP via WIF ─────────────────────────────────────
+      - uses: actions/checkout@v5
+
+      - id: auth
+        name: Authenticate to GCP (OIDC)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.SERVICE_ACCOUNT }}
+          token_format: access_token
+          create_credentials_file: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ secrets.PROJECT_ID }}
+
+      # ── 3. Confirm gcloud identity resolves correctly ──────────────────────
+      - name: Verify GCP auth identity
+        run: |
+          set -e
+          echo "::group::GCP auth identity"
+          ACTIVE_ACCOUNT=$(gcloud auth list --filter=status:ACTIVE --format="value(account)" 2>&1)
+          if [[ -z "$ACTIVE_ACCOUNT" ]]; then
+            echo "::error::GCP authentication failed — no active account found"
+            exit 1
+          fi
+          echo "Active GCP account: ${ACTIVE_ACCOUNT}"
+          echo "::endgroup::"
+
+      # ── 4. Validate Artifact Registry repository exists ────────────────────
+      - name: Validate Artifact Registry repository
+        run: |
+          set -e
+          echo "::group::Artifact Registry check"
+          if ! gcloud artifacts repositories describe ecommerce-frontend \
+              --location=${{ secrets.REGION }} \
+              --project=${{ secrets.PROJECT_ID }} \
+              --format="value(name)" 2>&1; then
+            echo "::error::Artifact Registry repo 'ecommerce-frontend' not found in ${{ secrets.REGION }}"
+            echo "Create it with:"
+            echo "  gcloud artifacts repositories create ecommerce-frontend \\"
+            echo "    --repository-format=docker \\"
+            echo "    --location=${{ secrets.REGION }} \\"
+            echo "    --project=${{ secrets.PROJECT_ID }}"
+            exit 1
+          fi
+          echo "Artifact Registry repository exists."
+          echo "::endgroup::"
+
+      # ── 5. Validate GKE cluster exists and is reachable ───────────────────
+      - name: Validate GKE cluster exists
+        run: |
+          set -e
+          echo "::group::GKE cluster check"
+          CLUSTER_STATUS=$(gcloud container clusters describe ${{ secrets.CLUSTER_NAME }} \
+            --region=${{ secrets.REGION }} \
+            --project=${{ secrets.PROJECT_ID }} \
+            --format="value(status)" 2>&1 || echo "NOT_FOUND")
+          if [[ "$CLUSTER_STATUS" == "NOT_FOUND" ]]; then
+            echo "::error::GKE cluster '${{ secrets.CLUSTER_NAME }}' not found in ${{ secrets.REGION }}"
+            exit 1
+          fi
+          if [[ "$CLUSTER_STATUS" != "RUNNING" ]]; then
+            echo "::error::GKE cluster is not RUNNING — current status: ${CLUSTER_STATUS}"
+            exit 1
+          fi
+          echo "GKE cluster status: ${CLUSTER_STATUS}"
+          echo "::endgroup::"
+
+      # ── 6. Validate service account has required IAM roles ─────────────────
+      - name: Validate IAM roles
+        run: |
+          set -e
+          echo "::group::IAM role check"
+          SA="${{ secrets.SERVICE_ACCOUNT }}"
+          PROJECT="${{ secrets.PROJECT_ID }}"
+
+          REQUIRED_ROLES=(
+            "roles/artifactregistry.writer"
+            "roles/container.developer"
+          )
+
+          POLICY=$(gcloud projects get-iam-policy "$PROJECT" \
+            --flatten="bindings[].members" \
+            --filter="bindings.members:serviceAccount:${SA}" \
+            --format="value(bindings.role)" 2>/dev/null || echo "")
+
+          MISSING_ROLES=()
+          for ROLE in "${REQUIRED_ROLES[@]}"; do
+            if ! echo "$POLICY" | grep -q "$ROLE"; then
+              MISSING_ROLES+=("$ROLE")
+            fi
+          done
+
+          if [[ ${#MISSING_ROLES[@]} -gt 0 ]]; then
+            echo "::warning::Service account may be missing roles: ${MISSING_ROLES[*]}"
+            echo "Grant them with:"
+            for ROLE in "${MISSING_ROLES[@]}"; do
+              echo "  gcloud projects add-iam-policy-binding ${PROJECT} \\"
+              echo "    --member=serviceAccount:${SA} --role=${ROLE}"
+            done
+            # Warn only — do not block; SA may inherit via groups or custom roles
+          else
+            echo "Required IAM roles confirmed present."
+          fi
+          echo "::endgroup::"
+
+      - name: Preflight summary
+        if: always()
+        run: |
+          echo "## Preflight Checks" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Secrets present | ${{ job.status == 'success' && '✅' || '❌' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| GCP OIDC auth   | ${{ job.status == 'success' && '✅' || '❌' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Artifact Registry | ${{ job.status == 'success' && '✅' || '❌' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| GKE cluster RUNNING | ${{ job.status == 'success' && '✅' || '❌' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| IAM roles | ⚠️ warn-only |" >> "$GITHUB_STEP_SUMMARY"
+
+  # ──────────────────────────────────────────────────────────────────────────
   # Setup — Compute metadata for the entire pipeline
   # ──────────────────────────────────────────────────────────────────────────
   setup:
     name: Setup
     runs-on: ubuntu-latest
+    needs: preflight
     outputs:
       image_tag: ${{ steps.meta.outputs.image_tag }}
       short_sha: ${{ steps.meta.outputs.short_sha }}
