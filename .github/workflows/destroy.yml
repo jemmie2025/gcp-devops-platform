@@ -173,7 +173,9 @@ jobs:
         working-directory: terraform
         run: |
           echo "::group::Terraform Destroy"
-          terraform apply -auto-approve -input=false tfplan-destroy
+          terraform destroy -auto-approve -input=false \
+            -var-file="envs/${{ github.event.inputs.environment }}/terraform.tfvars" \
+            -var-file="cicd.tfvars"
           echo "::endgroup::"
 
       - name: Destroy summary
