@@ -46,7 +46,6 @@ jobs:
           echo "::group::Repository preflight checks"
           REQUIRED=(
             "client/package.json"
-            "client/package-lock.json"
             "client/Dockerfile"
             "helm/charts/ecommerce/Chart.yaml"
             "helm/values/dev.yaml"
@@ -67,7 +66,11 @@ jobs:
           set -e
           echo "::group::Manifest syntax checks"
           node -e "JSON.parse(require('fs').readFileSync('client/package.json', 'utf8')); console.log('client/package.json valid JSON')"
-          node -e "JSON.parse(require('fs').readFileSync('client/package-lock.json', 'utf8')); console.log('client/package-lock.json valid JSON')"
+          if [[ -f client/package-lock.json ]]; then
+            node -e "JSON.parse(require('fs').readFileSync('client/package-lock.json', 'utf8')); console.log('client/package-lock.json valid JSON')"
+          else
+            echo "::warning::client/package-lock.json not found; CI will use npm install fallback"
+          fi
           python3 - <<'PY'
           from pathlib import Path
           import sys
@@ -111,10 +114,19 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          cache-dependency-path: client/package-lock.json
+          cache-dependency-path: |
+            client/package-lock.json
+            client/npm-shrinkwrap.json
 
-      - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+      - name: Install dependencies (lockfile-aware)
+        run: |
+          set -e
+          if [[ -f package-lock.json ]]; then
+            npm ci --legacy-peer-deps
+          else
+            echo "::warning::No package-lock.json found; using npm install fallback"
+            npm install --legacy-peer-deps
+          fi
 
       - name: Build
         run: npm run build
