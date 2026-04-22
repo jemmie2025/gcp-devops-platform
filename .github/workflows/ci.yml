@@ -69,21 +69,21 @@ jobs:
           node -e "JSON.parse(require('fs').readFileSync('client/package.json', 'utf8')); console.log('client/package.json valid JSON')"
           node -e "JSON.parse(require('fs').readFileSync('client/package-lock.json', 'utf8')); console.log('client/package-lock.json valid JSON')"
           python3 - <<'PY'
-from pathlib import Path
-import sys
+          from pathlib import Path
+          import sys
 
-required = [
-    "helm/charts/ecommerce/Chart.yaml",
-    "helm/values/dev.yaml",
-]
+          required = [
+            "helm/charts/ecommerce/Chart.yaml",
+            "helm/values/dev.yaml",
+          ]
 
-for file in required:
-    text = Path(file).read_text(encoding="utf-8")
-    if not text.strip():
-        print(f"::error::Empty YAML file: {file}")
-        sys.exit(1)
-print("Critical YAML manifests are non-empty and readable")
-PY
+          for file in required:
+            text = Path(file).read_text(encoding="utf-8")
+            if not text.strip():
+              print(f"::error::Empty YAML file: {file}")
+              sys.exit(1)
+          print("Critical YAML manifests are non-empty and readable")
+          PY
           echo "::endgroup::"
 
       - name: Preflight summary
@@ -204,12 +204,12 @@ PY
           echo "## CI Results Summary" >> "$GITHUB_STEP_SUMMARY"
           echo "| Check | Status |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-------|--------|" >> "$GITHUB_STEP_SUMMARY"
-           echo "| Preflight | ${{ needs.preflight.result }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Preflight | ${{ needs.preflight.result }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Frontend Build | ${{ needs.frontend-build.result }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Docker Build & Scan | ${{ needs.docker-build-test.result }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Helm Lint | ${{ needs.helm-lint.result }} |" >> "$GITHUB_STEP_SUMMARY"
 
-           if [[ "${{ needs.preflight.result }}" != "success" ]] || \
+          if [[ "${{ needs.preflight.result }}" != "success" ]] || \
              [[ "${{ needs.frontend-build.result }}" != "success" ]] || \
              [[ "${{ needs.docker-build-test.result }}" != "success" ]] || \
              [[ "${{ needs.helm-lint.result }}" != "success" ]]; then
