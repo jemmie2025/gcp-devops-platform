@@ -33,6 +33,7 @@ env:
   REGION: ${{ secrets.REGION }}
   GKE_CLUSTER_PREFIX: gke
   GKE_REGION: ${{ secrets.REGION }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   validate:
@@ -41,16 +42,116 @@ jobs:
     steps:
       - name: Confirm rollback intent
         run: |
+          set -e
           if [[ "${{ github.event.inputs.confirm }}" != "ROLLBACK" ]]; then
             echo "::error::Rollback not confirmed. You must type 'ROLLBACK' to proceed."
             exit 1
           fi
+
+          REVISION="${{ github.event.inputs.revision }}"
+          if [[ -n "$REVISION" && ! "$REVISION" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid revision '$REVISION'. Revision must be a positive integer."
+            exit 1
+          fi
+
+          if [[ "$REVISION" == "0" ]]; then
+            echo "::error::Revision '0' is reserved for 'previous'. Leave revision empty to target previous."
+            exit 1
+          fi
+
           echo "Rollback confirmed for environment: ${{ github.event.inputs.environment }}"
+
+  preflight:
+    name: Preflight Checks
+    runs-on: ubuntu-latest
+    needs: validate
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validate required secrets
+        run: |
+          set -e
+          echo "::group::Secret presence check"
+          MISSING=()
+
+          [[ -z "${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}" ]] && MISSING+=("WORKLOAD_IDENTITY_PROVIDER")
+          [[ -z "${{ secrets.SERVICE_ACCOUNT }}"            ]] && MISSING+=("SERVICE_ACCOUNT")
+          [[ -z "${{ secrets.PROJECT_ID }}"                 ]] && MISSING+=("PROJECT_ID")
+          [[ -z "${{ secrets.REGION }}"                     ]] && MISSING+=("REGION")
+
+          if [[ ${#MISSING[@]} -gt 0 ]]; then
+            echo "::error::Missing required GitHub secrets: ${MISSING[*]}"
+            echo "Add these secrets under Settings -> Secrets and variables -> Actions"
+            exit 1
+          fi
+          echo "All required secrets are present."
+          echo "::endgroup::"
+
+      - uses: actions/checkout@v5
+
+      - name: Authenticate to GCP
+        uses: ./.github/actions/gcp-auth
+        with:
+          workload_identity_provider: ${{ secrets.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.SERVICE_ACCOUNT }}
+          project_id: ${{ secrets.PROJECT_ID }}
+          setup_gke: 'true'
+          gke_cluster: ${{ env.GKE_CLUSTER_PREFIX }}-${{ github.event.inputs.environment }}
+          gke_location: ${{ env.GKE_REGION }}
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.17.0'
+
+      - name: Validate cluster and release state
+        run: |
+          set -e
+          echo "::group::Rollback prerequisites"
+          kubectl cluster-info >/dev/null
+          kubectl get namespace ecommerce >/dev/null
+
+          if ! helm status ecommerce -n ecommerce >/dev/null 2>&1; then
+            echo "::error::Helm release 'ecommerce' not found in namespace 'ecommerce'"
+            exit 1
+          fi
+
+          HISTORY_JSON=$(helm history ecommerce -n ecommerce -o json)
+          HISTORY_COUNT=$(echo "$HISTORY_JSON" | jq 'length')
+          if [[ "$HISTORY_COUNT" -lt 2 ]]; then
+            echo "::error::Rollback requires at least 2 revisions. Current history length: $HISTORY_COUNT"
+            exit 1
+          fi
+
+          TARGET_REVISION="${{ github.event.inputs.revision }}"
+          if [[ -n "$TARGET_REVISION" ]]; then
+            if ! echo "$HISTORY_JSON" | jq -e --arg rev "$TARGET_REVISION" 'map(.revision|tostring) | index($rev) != null' >/dev/null; then
+              echo "::error::Requested revision '$TARGET_REVISION' not found in helm history"
+              echo "Available revisions:"
+              echo "$HISTORY_JSON" | jq -r '.[].revision'
+              exit 1
+            fi
+          fi
+
+          echo "Cluster connectivity, namespace, and release history checks passed."
+          echo "::endgroup::"
+
+      - name: Preflight summary
+        if: always()
+        run: |
+          echo "## Rollback Preflight Checks" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Check | Result |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|--------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Secrets present | ${{ job.status == 'success' && '✅' || '❌' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| GCP OIDC auth   | ${{ job.status == 'success' && '✅' || '❌' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| GKE access      | ${{ job.status == 'success' && '✅' || '❌' }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Helm release state | ${{ job.status == 'success' && '✅' || '❌' }} |" >> "$GITHUB_STEP_SUMMARY"
 
   rollback:
     name: Rollback — ${{ github.event.inputs.environment }}
     runs-on: ubuntu-latest
-    needs: validate
+    needs: [validate, preflight]
     environment: ${{ github.event.inputs.environment == 'prod' && 'production' || github.event.inputs.environment }}
     steps:
       - uses: actions/checkout@v5
